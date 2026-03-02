@@ -1,0 +1,20 @@
+[Unit]
+Description=Run Gmail digest notifier at 8 AM and 5 PM daily
+Requires=email-notifier.service
+
+[Timer]
+# Fire at 8:00 AM and 5:00 PM in the system's local timezone.
+# Change these times to suit your schedule.
+OnCalendar=*-*-* 08:00:00
+OnCalendar=*-*-* 17:00:00
+
+# If the system was off during a scheduled run (e.g. reboot, brief outage),
+# run immediately on the next startup instead of waiting for the next window.
+# This is the "naturally self-restarting" behaviour.
+Persistent=true
+
+# Allow a small random delay so it doesn't fire at exactly :00 on shared infra.
+RandomizedDelaySec=60
+
+[Install]
+WantedBy=timers.target

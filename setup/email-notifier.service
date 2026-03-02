@@ -1,0 +1,23 @@
+[Unit]
+Description=Gmail digest notifier
+Documentation=https://github.com/yourname/email-notifier
+# Wait for network before running — important on droplets that come up slow.
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+# Run as a dedicated non-root user for isolation.
+User=email-notifier
+Group=email-notifier
+
+WorkingDirectory=/opt/email-notifier
+ExecStart=/opt/email-notifier/venv/bin/python /opt/email-notifier/notifier.py
+
+# Load secrets from the .env file so they never appear in unit files or ps output.
+EnvironmentFile=/opt/email-notifier/.env
+
+# Capture all output to the journal (query with: journalctl -u email-notifier).
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=email-notifier
