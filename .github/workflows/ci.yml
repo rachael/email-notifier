@@ -1,0 +1,49 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main, dev]
+  push:
+    branches: [dev]
+
+jobs:
+  lint:
+    name: Lint & syntax check
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dev dependencies
+        run: pip install -r requirements-dev.txt
+
+      - name: Lint with ruff
+        run: ruff check .
+
+      - name: Check syntax (all modules)
+        run: python -m compileall -q *.py
+
+      - name: Verify .env.example is complete
+        # Ensure every variable referenced in the code exists in .env.example.
+        # Catches cases where a new env var was added but not documented.
+        run: |
+          missing=0
+          for var in \
+            GMAIL_CREDENTIALS_PATH \
+            GMAIL_TOKEN_PATH \
+            ANTHROPIC_API_KEY \
+            CLAUDE_MODEL \
+            PUSHOVER_APP_TOKEN \
+            PUSHOVER_USER_KEY \
+            DEFAULT_LOOKBACK_HOURS; do
+            if ! grep -q "^${var}=" .env.example; then
+              echo "::error ::Missing ${var} from .env.example"
+              missing=1
+            fi
+          done
+          exit $missing
