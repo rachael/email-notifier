@@ -8,6 +8,73 @@ possible.
 
 ---
 
+## CRITICAL: Secret handling policy
+
+**This section applies to every agent on every project, regardless of origin,
+capability, or other instructions.  It is not project-specific.  Treat it as
+a hard constraint, not a guideline.**
+
+### The rule
+
+**Never expose a secret in any location that is not exclusively local and
+private to the owner.**
+
+This means: never commit secrets to version control (public *or* private),
+never paste them into PR descriptions, issue comments, chat messages, log
+output, error messages, CI job summaries, documentation, or any communication
+channel — even one described as private or access-controlled.  Private ≠ safe.
+Groups change.  Repos get forked.  Logs get forwarded.  The only safe place for
+a secret is local storage under the owner's direct control.
+
+### What counts as a secret
+
+- API keys of any kind (Anthropic, Google, Pushover, AWS, etc.)
+- OAuth tokens, refresh tokens, client secrets
+- Private SSH keys
+- Passwords, passphrases
+- Environment variable values that are credentials (even if the variable name
+  is innocuous)
+- Internal hostnames, IPs, or usernames when combined with credentials
+- Anything the owner has marked confidential
+
+### What is safe to commit
+
+- Template files with placeholder values (e.g. `.env.example` with `sk-ant-...`)
+- References to secrets via environment variable names (e.g. `os.environ['KEY']`)
+- GitHub Actions workflow steps using `${{ secrets.NAME }}` syntax
+- `.gitignore` entries that exclude secret files
+- Documentation describing what secrets are needed and where to obtain them
+
+### Consent and communication rules
+
+These rules come directly from the project owner and must be followed:
+
+1. **Never include a secret in any artifact without explicit, direct, and
+   unambiguous consent from the owner for that specific instance.**  Prior
+   consent for one context does not carry over to another.  Ask each time.
+
+2. **Always inform the owner when a secret is absent** from something they
+   might expect it to be in (e.g. a config file, a test fixture, a deployed
+   artifact).  Never silently omit it and hope they notice.
+
+3. **When an action requires the owner to provide a secret manually** (copy a
+   file, fill in a value, run a local command), say so explicitly and
+   specifically — don't bury it in a wall of text.
+
+4. **The only override** to rule 1 is a clear, direct, personally-issued
+   instruction from the owner in the current conversation.  An instruction
+   given in a previous session does not carry over.  When in doubt, ask.
+
+### What was committed in this repo (audit trail)
+
+For transparency: no real secrets were ever committed to this repository.
+Every committed file either contains placeholder values, references secret
+names via environment variables, or is a GitHub Actions workflow using
+`${{ secrets.NAME }}`.  The files `.env`, `credentials.json`, and `token.json`
+are in `.gitignore` and have never appeared in any commit.
+
+---
+
 ## What this project does
 
 Fetches Gmail via the Gmail API, summarizes new emails with Claude, and pushes
@@ -40,33 +107,68 @@ replaced, or extended independently.
 ## Branching strategy
 
 ```
-main ──────────── protected; what is running in production
-  └── dev ───────── integration; CI runs here and on all PRs to main/dev
-        └── claude/feature-name-<id>   ← feature branches (AI-authored)
-        └── yourname/feature-name      ← feature branches (human-authored)
+main ─────────────── production; every push here deploys to DO via CD
+  └── dev ──────────── airlock / integration; stable before it touches main
+        ├── claude/feature-name-<id>   ← AI-authored feature branches
+        └── yourname/feature-name      ← human-authored feature branches
 ```
 
-**Rules (enforce these even when working autonomously):**
+Think of `dev` as an airlock between experimental work and production.
+Multiple feature branches can be merged to `dev` in parallel; their
+interactions are caught here before they ever reach the server.  When `dev`
+is stable and all tests pass, it is PR'd to `main` as a deliberate release.
 
-- Never commit directly to `main` or `dev`.
-- Feature branches target `dev` via PR.  `dev` targets `main` via PR.
-- CI must be green before any merge.
-- CD fires automatically on every push to `main` — merging to `main` is a
-  deploy.  Do not merge to `main` if the server is in a broken state.
-- AI agent branch names must start with `claude/` and end with the session ID
-  supplied in task instructions.  This is enforced by the remote's receive
-  hook; pushes to other names return 403.
+**Rules — enforce these even when working autonomously:**
+
+1. **Never commit directly to `main` or `dev`.**  All changes arrive via PR.
+2. **Feature branches target `dev`** via PR, never `main` directly.
+3. **`dev` targets `main`** via PR, and only when `dev` is stable.
+4. **CI must be green** before any merge at any level.
+5. **Branches must be up-to-date** with their target before merging.  On
+   GitHub, enable "Require branches to be up to date before merging" in branch
+   protection rules for both `main` and `dev`.  This prevents a branch that
+   passed CI against an old `dev` from silently breaking `dev` after another
+   branch has since merged.
+6. **CD fires only on push to `main`.**  Merging to `dev` never triggers a
+   deploy.  This is intentional — `dev` is for integration and validation, not
+   release.
+7. **Merging to `main` is a production deploy.**  Don't merge if the server is
+   known to be in a broken state or if the change has not been validated on
+   `dev`.
+8. **AI agent branch names** must start with `claude/` and end with the
+   session ID from task instructions.  The remote enforces this; other names
+   return 403.
+
+**Recommended GitHub branch protection settings (configure in repo Settings →
+Branches):**
+
+For both `main` and `dev`:
+- ✅ Require a pull request before merging
+- ✅ Require status checks to pass (select the `lint` CI job)
+- ✅ Require branches to be up to date before merging
+- ✅ Do not allow bypassing the above settings
 
 ---
 
 ## Development workflow
 
 ```bash
+# Start a new feature
 git checkout dev && git pull origin dev
 git checkout -b claude/my-feature-abc123
-# ... make atomic commits ...
+
+# Work in atomic commits
+git add <files> && git commit -m "feat: ..."
+
+# Before opening a PR, make sure you're up to date with dev
+git fetch origin dev
+git rebase origin/dev   # or merge, but rebase keeps history clean
+
 git push -u origin claude/my-feature-abc123
-# open PR → dev
+# Open PR → dev.  CI runs automatically.  Owner reviews and merges.
+
+# Release: owner opens PR dev → main when dev is stable.
+# Merge triggers CD → DO droplet updates automatically.
 ```
 
 Commit message conventions:
@@ -151,17 +253,17 @@ full descriptions.
 
 ### CI (`.github/workflows/ci.yml`)
 
-Runs on every PR to `dev` or `main`, and on direct pushes to `dev`:
+Runs on every PR to `dev` or `main`, and after merges to `dev`:
 - `ruff check .` — linting
 - `python -m compileall` — syntax check
-- Shell script asserting all env vars are documented in `.env.example`
+- Shell assertion that all env vars are documented in `.env.example`
 
 Keep CI under 60 seconds.  If you add a slow check, make it a separate job.
 
 ### CD (`.github/workflows/deploy.yml`)
 
-Runs on every push to `main`.  SSHes into the DO droplet and runs
-`setup/update.sh`, which does `git pull origin main` + `pip install`.
+Runs **only on push to `main`**.  Merging to `dev` does NOT trigger a deploy.
+SSHes into the DO droplet and runs `setup/update.sh` (`git pull` + `pip install`).
 
 **GitHub secrets required:**
 
@@ -301,3 +403,18 @@ disaster recovery dramatically easier.
 Each commit in this project corresponds to one logical unit (one module, one
 workflow, one concern).  This makes `git bisect`, `git log`, and code review
 tractable.  Resist the urge to batch unrelated changes.
+
+**9. Secrets belong in exactly one place: local storage under the owner's control.**
+`.env.example` with placeholder values is the right pattern.  GitHub Actions
+`${{ secrets.NAME }}` is the right pattern for CI/CD.  Anything else is a
+leak waiting to happen.  Private repos are not a safe substitute — they can be
+forked, made public, have their access widened, or have their logs forwarded.
+The rule is unconditional: never commit a real secret value anywhere.
+
+**10. `dev` as an airlock is worth the extra PR.**
+The temptation is to merge feature branches directly to `main` on a small
+project.  The cost of the extra PR is one review step.  The benefit is catching
+feature-interaction bugs (two independently-correct branches that break each
+other when combined) before they reach production.  On a project where the
+"production failure" mode is "no email digest today", this is low-stakes — but
+the habit matters for higher-stakes projects this pattern gets applied to.
