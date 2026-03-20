@@ -75,6 +75,8 @@ to repeat this step.
 ```bash
 cp .env.example .env
 # Fill in all values in .env
+# GMAIL_CREDENTIALS_PATH and GMAIL_TOKEN_PATH default to relative paths
+# (credentials.json / token.json in the repo root) — correct for local use.
 python notifier.py
 ```
 
