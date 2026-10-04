@@ -18,3 +18,8 @@ build/
 .idea/
 .vscode/
 *.swp
+
+# Personal mail rules and routine: private, never commit
+FILTERS.md
+ROUTINE.md
+.DS_Store
