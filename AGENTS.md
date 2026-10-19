@@ -376,10 +376,14 @@ Restricting to `gmail.readonly` prevents a whole class of bugs (accidentally
 marking emails read, auto-archiving, etc.) and limits the blast radius of a
 leaked token.  Treat any request to widen the scope as a security decision.
 
-**4. Never route the source of truth through the notifier.**
-The user's friend filtered all email into a secondary inbox and sent summaries.
-Any downtime = lost mail.  Our approach is read-only: Gmail is always the
-source of truth; the notifier is just a lens.
+**4. Keep the notifier a lens, not a middleman — and gate writes behind validated delivery.**
+Gmail is always the source of truth; the notifier only reads.  If the notifier
+fails, nothing is lost.  This matters most when a notifier is new and unproven:
+any feature that consumes or modifies an email (marking read, archiving,
+labeling) must be gated behind confident, validated delivery.  Don't let the
+notifier "use up" an email before you trust it will surface that email to you.
+The read-only scope isn't just a safety net — it's a forcing function that
+prevents a whole class of premature-optimization bugs.
 
 **5. `git clone` on the server enables clean CD.**
 The initial `cp`-based install broke CD (no way to `git pull`).  Cloning the
